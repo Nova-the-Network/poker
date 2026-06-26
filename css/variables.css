@@ -1,0 +1,122 @@
+/* ============================================
+   POKER - Variables CSS (Casino Royal Theme)
+   ============================================ */
+
+:root {
+    /* === COULEURS PRINCIPALES === */
+    --primary: #0A0A0A;         /* Noir profond */
+    --secondary: #D4AF37;       /* Or */
+    --accent: #8B0000;          /* Rouge foncé */
+    --accent-light: #A00000;    /* Rouge clair */
+    --background: #0F0F0F;      /* Fond noir */
+    --background-light: #1A1A1A; /* Fond clair */
+    
+    /* === COULEURS DE TEXTE === */
+    --text: #F5F5DC;            /* Beige clair */
+    --text-muted: #A0A0A0;      /* Texte atténué */
+    --text-dark: #333333;       /* Texte foncé */
+    
+    /* === COULEURS D'ÉTAT === */
+    --success: #2E8B57;         /* Vert succès */
+    --error: #CD5C5C;           /* Rouge erreur */
+    --warning: #FFD700;         /* Or avertissement */
+    --info: #4169E1;            /* Bleu info */
+    
+    /* === EFFETS === */
+    --border: 1px solid rgba(212, 175, 55, 0.3);
+    --border-strong: 2px solid rgba(212, 175, 55, 0.5);
+    --shadow: 0 4px 20px rgba(212, 175, 55, 0.1);
+    --shadow-lg: 0 8px 30px rgba(212, 175, 55, 0.15);
+    --shadow-glow: 0 0 20px rgba(212, 175, 55, 0.3);
+    
+    /* === ESPACEMENTS === */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-2xl: 48px;
+    
+    /* === BORDURES === */
+    --radius-sm: 6px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
+    --radius-full: 9999px;
+    
+    /* === TRANSITIONS === */
+    --transition-fast: 0.15s ease;
+    --transition-normal: 0.3s ease;
+    --transition-slow: 0.5s ease;
+    --transition-bounce: 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    
+    /* === POLICES === */
+    --font-title: 'Playfair Display', 'Georgia', serif;
+    --font-body: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: 'Fira Code', 'Courier New', monospace;
+    
+    /* === TAILLES DE POLICE === */
+    --text-xs: 0.65rem;
+    --text-sm: 0.75rem;
+    --text-base: 0.875rem;
+    --text-lg: 1rem;
+    --text-xl: 1.25rem;
+    --text-2xl: 1.5rem;
+    --text-3xl: 2rem;
+    --text-4xl: 2.5rem;
+    
+    /* === POIDS DE POLICE === */
+    --font-light: 300;
+    --font-normal: 400;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-bold: 700;
+    --font-black: 900;
+}
+
+/* === RESET CSS === */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: var(--font-body);
+    background-color: var(--background);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* === SCROLLBAR STYLING === */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--background-light);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--secondary);
+    border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+}
+
+/* === SELECTION TEXT === */
+::selection {
+    background: var(--secondary);
+    color: var(--primary);
+}

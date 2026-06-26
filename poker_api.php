@@ -1,11 +1,60 @@
 <?php
-ini_set('display_errors', 0); // Désactivé en production pour la sécurité
-error_reporting(0);
+// Infinity Free bloque display_errors, donc on utilise un log personnalisé
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
+// Log personnalisé pour Infinity Free
+function logError($message) {
+    file_put_contents('php://stderr', $message . PHP_EOL, FILE_APPEND);
+    // Alternative : écrire dans un fichier (si les permissions le permettent)
+    // file_put_contents(__DIR__ . '/error_log.txt', $message . PHP_EOL, FILE_APPEND);
+}
+
+set_error_handler(function($errno, $errstr, $errfile, $errline) {
+    logError("[$errno] $errstr dans $errfile à la ligne $errline");
+    return false; // Laisser PHP gérer l'erreur normalement
+});
+
+set_exception_handler(function($e) {
+    logError("Exception: " . $e->getMessage() . " dans " . $e->getFile() . " à la ligne " . $e->getLine());
+});
+
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once '../config.php';
 
 // Charger les classes automatiquement
 require_once __DIR__ . '/../classes/autoload.php';
+
+// Vérifier et créer la table poker_bots si elle n'existe pas (pour Infinity Free)
+try {
+    $pdo->query("SELECT 1 FROM poker_bots LIMIT 1");
+} catch (PDOException $e) {
+    // La table n'existe pas, on la crée
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS poker_bots (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(50) NOT NULL DEFAULT 'Bot',
+                chips INT NOT NULL DEFAULT 1000,
+                difficulty ENUM('easy', 'medium', 'hard') NOT NULL DEFAULT 'medium',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+        
+        // Insérer des bots par défaut si la table était vide
+        $pdo->exec("INSERT INTO poker_bots (name, chips, difficulty) VALUES 
+            ('Bot 1', 1000, 'easy'),
+            ('Bot 2', 1000, 'medium'),
+            ('Bot 3', 1000, 'hard'),
+            ('Bot 4', 1000, 'easy'),
+            ('Bot 5', 1000, 'medium'),
+            ('Bot 6', 1000, 'hard')
+            ON DUPLICATE KEY UPDATE id = id
+        ");
+    } catch (PDOException $e) {
+        logError("Impossible de créer la table poker_bots: " . $e->getMessage());
+    }
+}
 
 header('Content-Type: application/json');
 
@@ -100,9 +149,26 @@ switch ($action) {
             $botsNeeded = $nbBots;
             $pos = 1;
 
-            $stmt = $pdo->prepare("SELECT * FROM poker_bots ORDER BY RAND() LIMIT ?");
-            $stmt->execute([$botsNeeded]);
-            $bots = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Vérifier si la table poker_bots existe et contient des données
+            try {
+                $stmt = $pdo->prepare("SELECT * FROM poker_bots ORDER BY RAND() LIMIT ?");
+                $stmt->execute([$botsNeeded]);
+                $bots = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {
+                // Si la table n'existe pas, créer des bots par défaut
+                $bots = [];
+                for ($i = 0; $i < $botsNeeded; $i++) {
+                    $bots[] = ['id' => $i + 1, 'chips' => 1000]; // Bots par défaut avec 1000 chips
+                }
+            }
+
+            // Si aucun bot n'a été trouvé, en créer des par défaut
+            if (empty($bots)) {
+                $bots = [];
+                for ($i = 0; $i < $botsNeeded; $i++) {
+                    $bots[] = ['id' => $i + 1, 'chips' => 1000];
+                }
+            }
 
             $pdo->beginTransaction();
             foreach ($bots as $bot) {
