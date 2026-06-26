@@ -4,8 +4,8 @@ error_reporting(0);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once '../config.php';
 
-// Charger les classes
-require_once __DIR__ . '/../classes/BotAI.php';
+// Charger les classes automatiquement
+require_once __DIR__ . '/../classes/autoload.php';
 
 header('Content-Type: application/json');
 
