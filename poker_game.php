@@ -1,6 +1,7 @@
 <?php
 // error_reporting(E_ALL); // production: désactivé
-ini_set('display_errors', 1);
+ini_set('display_errors', 0); // Désactivé en production pour la sécurité
+error_reporting(0);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once '../config.php';
 
@@ -10,6 +11,11 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $userId = $_SESSION['user_id'];
+
+// Générer un token CSRF si inexistant
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 $sessionId = (int)($_GET['id'] ?? 0);
 $code = trim($_GET['code'] ?? '');
@@ -223,6 +229,75 @@ body {
 }
 .blind-sb { background:rgba(34,197,94,0.2); color:var(--green); }
 .blind-bb { background:rgba(255,11,0,0.2); color:var(--red); }
+
+/* Notifications */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.8);
+    color: var(--white);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 600;
+    z-index: 1000;
+    transform: translateX(120%);
+    transition: transform 0.3s ease-out;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border-left: 4px solid var(--green);
+}
+.notification.show {
+    transform: translateX(0);
+}
+.notification.error {
+    border-left-color: var(--red);
+    background: rgba(255, 0, 0, 0.15);
+}
+.notification.success {
+    border-left-color: var(--green);
+    background: rgba(0, 255, 0, 0.15);
+}
+.notification.info {
+    border-left-color: #2196F3;
+    background: rgba(0, 0, 0, 0.8);
+}
+
+/* Boîte de confirmation */
+.confirm-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001;
+}
+.confirm-box {
+    background: var(--white);
+    color: var(--black);
+    padding: 20px 30px;
+    border-radius: 16px;
+    border: var(--border);
+    box-shadow: var(--sh-lg);
+    text-align: center;
+    max-width: 400px;
+    width: 90%;
+}
+.confirm-box h3 {
+    font-size: 1.1rem;
+    font-weight: 800;
+    margin-bottom: 16px;
+}
+.confirm-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
 .cards-row { display:flex; gap:3px; margin-top:1px; }
 .card {
     width:34px; height:48px;
@@ -407,8 +482,9 @@ body {
     <a href="poker.php" class="back-link">← Lobby</a>
     <h2>Hold'em #<?= $sessionId ?></h2>
     <span id="gameStatus">Chargement…</span>
-    <a href="poker.php" class="quit-btn" id="quitBtn" style="display:none;">Quitter</a>
+    <a href="#" class="quit-btn" id="quitBtn" style="display:none;" onclick="confirmQuit(event)">Quitter</a>
 </div>
+<input type="hidden" id="csrfToken" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
 
 <div class="table-wrap">
     <div class="table-felt" id="tableFelt">
@@ -463,6 +539,59 @@ var botPlaying = false;
 var pollTimer = null;
 var autoDealTimer = null;
 var isDealingAnimation = false;
+
+// Fonction pour obtenir le token CSRF
+function getCsrfToken() {
+    var token = document.getElementById('csrfToken');
+    return token ? token.value : '';
+}
+
+// Fonction pour afficher une notification
+function showNotification(message, type) {
+    var notification = document.createElement('div');
+    notification.className = 'notification ' + (type || 'info');
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    // Animation d'apparition
+    setTimeout(function() {
+        notification.classList.add('show');
+    }, 10);
+    
+    // Suppression après 3 secondes
+    setTimeout(function() {
+        notification.classList.remove('show');
+        setTimeout(function() { notification.remove(); }, 300);
+    }, 3000);
+}
+
+// Fonction pour envoyer une requête POST avec CSRF
+function pokerPost(action, params, callback) {
+    var csrfToken = getCsrfToken();
+    params.csrf_token = csrfToken;
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', 'poker_api.php?action=' + action, true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function() {
+        try {
+            var d = JSON.parse(xhr.responseText);
+            if (!d.success && d.error) {
+                showNotification(d.error, 'error');
+            }
+            callback(d);
+        } catch(e) {
+            showNotification('Erreur réseau', 'error');
+            if (callback) callback({success: false, error: 'Erreur réseau'});
+        }
+    };
+    xhr.onerror = function() {
+        showNotification('Erreur réseau', 'error');
+        if (callback) callback({success: false, error: 'Erreur réseau'});
+    };
+    xhr.send(Object.keys(params).map(function(k) {
+        return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+    }).join('&'));
+}
 var prevCommCount = 0;
 var prevTour = null;
 
@@ -728,6 +857,68 @@ function escHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Fonction pour demander une confirmation
+function confirmAction(message, callback) {
+    var overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.innerHTML = '
+        <div class="confirm-box">
+            <h3>' + message + '</h3>
+            <div class="confirm-buttons">
+                <button class="btn btn-green" onclick="confirmYes()">Oui</button>
+                <button class="btn btn-sm" onclick="confirmNo()">Non</button>
+            </div>
+        </div>
+    ';
+    document.body.appendChild(overlay);
+    
+    window.confirmYes = function() {
+        overlay.remove();
+        callback(true);
+    };
+    window.confirmNo = function() {
+        overlay.remove();
+        callback(false);
+    };
+}
+
+// Fonction pour confirmer la sortie de la partie
+function confirmQuit(event) {
+    event.preventDefault();
+    confirmAction('Êtes-vous sûr de vouloir quitter la partie ?', function(yes) {
+        if (yes) {
+            window.location.href = 'poker.php';
+        }
+    });
+}
+
+// Sons du jeu (désactivés si les fichiers n'existent pas)
+var sounds = {
+    deal: new Audio('sounds/deal.mp3'),
+    bet: new Audio('sounds/bet.mp3'),
+    call: new Audio('sounds/call.mp3'),
+    raise: new Audio('sounds/raise.mp3'),
+    fold: new Audio('sounds/fold.mp3'),
+    win: new Audio('sounds/win.mp3'),
+    chips: new Audio('sounds/chips.mp3'),
+    error: new Audio('sounds/error.mp3')
+};
+
+// Désactiver les sons qui ne chargent pas
+Object.keys(sounds).forEach(function(key) {
+    sounds[key].addEventListener('error', function() {
+        sounds[key].src = ''; // Désactiver le son
+    });
+});
+
+// Fonction pour jouer un son
+function playSound(name) {
+    if (sounds[name] && sounds[name].src) {
+        sounds[name].currentTime = 0; // Réinitialiser pour permettre de jouer plusieurs fois
+        sounds[name].play().catch(function() {}); // Ignorer les erreurs
+    }
+}
+
 function dealCards() {
     if (isDealingAnimation) return;
     isDealingAnimation = true;
@@ -736,116 +927,143 @@ function dealCards() {
 
     var overlay = document.getElementById('dealOverlay');
     overlay.classList.add('show');
+    playSound('deal'); // Jouer le son de distribution
 
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', 'poker_api.php?action=deal', true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        try {
-            var d = JSON.parse(xhr.responseText);
-            if (d.success) {
-                currentHandId = d.hand_id;
-                currentTour = 'preflop';
-                setTimeout(function() {
-                    overlay.classList.remove('show');
-                    isDealingAnimation = false;
-                    loadState(function() {
-                        runBotTurn();
-                    });
-                }, 900);
-            } else {
+    pokerPost('deal', {id: sessionId}, function(d) {
+        if (d.success) {
+            currentHandId = d.hand_id;
+            currentTour = 'preflop';
+            setTimeout(function() {
                 overlay.classList.remove('show');
                 isDealingAnimation = false;
-                alert(d.error || 'Erreur');
-            }
-        } catch(e) {
+                loadState(function() {
+                    runBotTurn();
+                });
+            }, 900);
+        } else {
             overlay.classList.remove('show');
             isDealingAnimation = false;
-            alert('Erreur réseau');
+            playSound('error');
         }
-    };
-    xhr.send('id=' + sessionId);
+    });
 }
 
 function doAction(action) {
     if (botPlaying) return;
+    
+    // Demander confirmation pour fold
+    if (action === 'fold') {
+        confirmAction('Êtes-vous sûr de vouloir fold ?', function(yes) {
+            if (yes) {
+                botPlaying = true;
+                pokerPost('action', {
+                    id: sessionId,
+                    hand_id: currentHandId,
+                    action: action,
+                    montant: 0
+                }, function(d) {
+                    if (d.success) {
+                        loadState(function() { runBotTurn(); });
+                    } else {
+                        botPlaying = false;
+                    }
+                });
+            }
+        });
+        return;
+    }
+    
     botPlaying = true;
     var montant = 0;
     if (action === 'bet' || action === 'raise') {
         montant = parseInt(document.getElementById('betAmount').value) || 1;
     }
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', 'poker_api.php?action=action', true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        try {
-            var d = JSON.parse(xhr.responseText);
-            if (d.success) {
-                loadState(function() { runBotTurn(); });
-            } else {
-                botPlaying = false;
-                alert(d.error || 'Erreur');
-            }
-        } catch(e) { botPlaying = false; alert('Erreur réseau'); }
-    };
-    xhr.onerror = function() { botPlaying = false; };
-    xhr.send('id=' + sessionId + '&hand_id=' + currentHandId + '&action=' + action + '&montant=' + montant);
+    pokerPost('action', {
+        id: sessionId,
+        hand_id: currentHandId,
+        action: action,
+        montant: montant
+    }, function(d) {
+        if (d.success) {
+            // Jouer le son correspondant à l'action
+            if (action === 'bet') playSound('bet');
+            else if (action === 'call') playSound('call');
+            else if (action === 'raise') playSound('raise');
+            else if (action === 'fold') playSound('fold');
+            loadState(function() { runBotTurn(); });
+        } else {
+            botPlaying = false;
+            playSound('error');
+        }
+    });
 }
 
 function runBotTurn() {
     if (!currentHandId) { botPlaying = false; return; }
     botPlaying = true;
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', 'poker_api.php?action=bot_play', true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        try {
-            var d = JSON.parse(xhr.responseText);
-            if (d.success) {
-                if (d.need_showdown) {
-                    botPlaying = false;
-                    runShowdown();
-                } else if (d.advance_to) {
-                    currentTour = d.advance_to;
-                    loadState(function() {
-                        if (d.advance_to !== 'showdown') runBotTurn();
-                        else botPlaying = false;
-                    });
-                } else {
-                    botPlaying = false;
-                    loadState();
-                }
-            } else { botPlaying = false; loadState(); }
-        } catch(e) { botPlaying = false; loadState(); }
-    };
-    xhr.onerror = function() { botPlaying = false; };
-    xhr.send('id=' + sessionId + '&hand_id=' + currentHandId);
+    pokerPost('bot_play', {
+        id: sessionId,
+        hand_id: currentHandId
+    }, function(d) {
+        if (d.success) {
+            // Afficher les notifications pour les actions des bots
+            if (d.bot_actions && d.bot_actions.length > 0) {
+                d.bot_actions.forEach(function(botAction) {
+                    var botName = 'Bot ' + (botAction.player_id % 10); // Nom simplifié
+                    var actionMsg = botName + ' a ';
+                    if (botAction.action === 'fold') {
+                        actionMsg += 'fold';
+                    } else if (botAction.action === 'check') {
+                        actionMsg += 'check';
+                    } else if (botAction.action === 'call') {
+                        actionMsg += 'suivi (' + botAction.montant + ' chips)';
+                    } else if (botAction.action === 'bet') {
+                        actionMsg += 'misé ' + botAction.montant + ' chips';
+                    } else if (botAction.action === 'raise') {
+                        actionMsg += 'relancé à ' + botAction.montant + ' chips';
+                    }
+                    showNotification(actionMsg, 'info');
+                });
+            }
+            
+            if (d.need_showdown) {
+                botPlaying = false;
+                runShowdown();
+            } else if (d.advance_to) {
+                currentTour = d.advance_to;
+                loadState(function() {
+                    if (d.advance_to !== 'showdown') runBotTurn();
+                    else botPlaying = false;
+                });
+            } else {
+                botPlaying = false;
+                loadState();
+            }
+        } else { botPlaying = false; loadState(); }
+    });
 }
 
 function runShowdown() {
     if (!currentHandId) return;
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', 'poker_api.php?action=showdown', true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() {
-        try {
-            var d = JSON.parse(xhr.responseText);
-            if (d.success) {
-                document.getElementById('actionsBar').style.display = 'none';
-                loadState(function() {
-                    setTimeout(function() { showWinner(d); }, 3000);
-                });
-            } else {
-                loadState();
-            }
-        } catch(e) { loadState(); }
-    };
-    xhr.send('id=' + sessionId + '&hand_id=' + currentHandId);
+    pokerPost('showdown', {
+        id: sessionId,
+        hand_id: currentHandId
+    }, function(d) {
+        if (d.success) {
+            document.getElementById('actionsBar').style.display = 'none';
+            loadState(function() {
+                setTimeout(function() { showWinner(d); }, 3000);
+            });
+        } else {
+            loadState();
+        }
+    });
 }
 
 function showWinner(data) {
     var overlay = document.getElementById('winnerOverlay');
     overlay.classList.add('show');
+    playSound('win'); // Jouer le son de victoire
 
     var winners = data.winners || [data.winner];
     var hand = data.hand_name || '';
@@ -886,11 +1104,9 @@ function showWinner(data) {
 }
 
 function addBot() {
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', 'poker_api.php?action=join_bot', true);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    xhr.onload = function() { loadState(); };
-    xhr.send('id=' + sessionId);
+    pokerPost('join_bot', {id: sessionId}, function(d) {
+        loadState();
+    });
 }
 
 loadState();

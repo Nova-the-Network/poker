@@ -1,6 +1,11 @@
 <?php
+ini_set('display_errors', 0); // Désactivé en production pour la sécurité
+error_reporting(0);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once '../config.php';
+
+// Charger les classes automatiquement
+require_once __DIR__ . '/../classes/autoload.php';
 
 header('Content-Type: application/json');
 
@@ -12,6 +17,32 @@ if (!isset($_SESSION['user_id'])) {
 $userId = $_SESSION['user_id'];
 $action = $_GET['action'] ?? '';
 
+// Vérifier le token CSRF pour les requêtes POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !isset($_SESSION['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        echo json_encode(['success' => false, 'error' => 'Token CSRF invalide']);
+        exit;
+    }
+}
+
+// Fonction pour valider un entier dans une plage
+function validateInt($value, $min, $max, $default) {
+    $intValue = (int)$value;
+    if ($intValue < $min || $intValue > $max) {
+        return $default;
+    }
+    return $intValue;
+}
+
+// Fonction pour valider une chaîne de caractères
+function validateString($value, $minLength = 1, $maxLength = 255) {
+    $str = trim($value ?? '');
+    if (strlen($str) < $minLength || strlen($str) > $maxLength) {
+        return '';
+    }
+    return $str;
+}
+
 try {
 
 switch ($action) {
@@ -20,9 +51,12 @@ switch ($action) {
     // CRÉER UNE PARTIE
     // ═══════════════════════════════════════
     case 'create':
-        $type = in_array($_POST['type'] ?? '', ['vs_bots','vs_friends','mixte']) ? $_POST['type'] : 'vs_bots';
-        $mise = max(1, min(100000, (int)($_POST['mise'] ?? 100)));
-        $nbBots = ($type === 'vs_friends') ? 0 : max(0, min(6, (int)($_POST['bots'] ?? 0)));
+        $type = validateString($_POST['type'] ?? '');
+        if (!in_array($type, ['vs_bots','vs_friends','mixte'])) {
+            $type = 'vs_bots';
+        }
+        $mise = validateInt($_POST['mise'] ?? 100, 10, 100000, 100);
+        $nbBots = ($type === 'vs_friends') ? 0 : validateInt($_POST['bots'] ?? 0, 0, 6, 0);
 
         $stmt = $pdo->prepare("SELECT chips FROM utilisateur WHERE id = ?");
         $stmt->execute([$userId]);
@@ -92,9 +126,9 @@ switch ($action) {
     // REJOINDRE PAR CODE
     // ═══════════════════════════════════════
     case 'join':
-        $code = trim($_POST['code'] ?? '');
+        $code = validateString($_POST['code'] ?? '', 8, 8); // Code doit faire exactement 8 caractères
         if (!$code) {
-            echo json_encode(['success' => false, 'error' => 'Code invalide']);
+            echo json_encode(['success' => false, 'error' => 'Code invalide (8 caractères requis)']);
             exit;
         }
 
@@ -285,7 +319,7 @@ switch ($action) {
     // DISTRIBUER — 2 cartes + blinds + preflop
     // ═══════════════════════════════════════
     case 'deal':
-        $sessionId = (int)($_POST['id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
         if (!$sessionId) {
             echo json_encode(['success' => false, 'error' => 'ID requis']);
             exit;
@@ -441,13 +475,15 @@ switch ($action) {
     // ACTION : CHECK, BET, CALL, RAISE, FOLD
     // ═══════════════════════════════════════
     case 'action':
-        $sessionId = (int)($_POST['id'] ?? 0);
-        $handId = (int)($_POST['hand_id'] ?? 0);
-        $actionType = $_POST['action'] ?? '';
-        $montant = (int)($_POST['montant'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
+        $handId = validateInt($_POST['hand_id'] ?? 0, 1, PHP_INT_MAX, 0);
+        $actionType = validateString($_POST['action'] ?? '');
+        $montant = validateInt($_POST['montant'] ?? 0, 0, PHP_INT_MAX, 0);
 
-        if (!$sessionId || !$handId || !$actionType) {
-            echo json_encode(['success' => false, 'error' => 'Paramètres manquants']);
+        // Valider le type d'action
+        $validActions = ['check', 'bet', 'call', 'raise', 'fold'];
+        if (!$sessionId || !$handId || !in_array($actionType, $validActions)) {
+            echo json_encode(['success' => false, 'error' => 'Paramètres invalides']);
             exit;
         }
 
@@ -621,8 +657,8 @@ switch ($action) {
     // JOUER LES BOTS + AVANCER LES TOURS
     // ═══════════════════════════════════════
     case 'bot_play':
-        $sessionId = (int)($_POST['id'] ?? 0);
-        $handId = (int)($_POST['hand_id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
+        $handId = validateInt($_POST['hand_id'] ?? 0, 1, PHP_INT_MAX, 0);
 
         if (!$sessionId || !$handId) {
             echo json_encode(['success' => false, 'error' => 'Paramètres manquants']);
@@ -695,6 +731,9 @@ switch ($action) {
         $needShowdown = false;
         $allActed = false;
         $botPasses = 0;
+        
+        // Cache pour les données des joueurs (roundBet, hasActed)
+        $playerCache = [];
 
         do {
             if (++$botPasses > 30) break;
@@ -702,13 +741,22 @@ switch ($action) {
                 $player = $orderedPlayers[($startIdx + $pi) % $numOrdered];
                 if ($player['chips_avant'] <= 0) continue;
 
-                $stmt = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ?");
-                $stmt->execute([$handId, $player['id'], $tour]);
-                $roundBet = (int)$stmt->fetchColumn();
+                // Vérifier si les données sont déjà en cache
+                $playerId = $player['id'];
+                if (!isset($playerCache[$playerId])) {
+                    $stmt = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ?");
+                    $stmt->execute([$handId, $playerId, $tour]);
+                    $roundBet = (int)$stmt->fetchColumn();
 
-                $stmtA = $pdo->prepare("SELECT id FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ? AND action != 'blind'");
-                $stmtA->execute([$handId, $player['id'], $tour]);
-                $hasActed = $stmtA->fetch();
+                    $stmtA = $pdo->prepare("SELECT id FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ? AND action != 'blind'");
+                    $stmtA->execute([$handId, $playerId, $tour]);
+                    $hasActed = $stmtA->fetch();
+                    
+                    $playerCache[$playerId] = ['roundBet' => $roundBet, 'hasActed' => $hasActed];
+                } else {
+                    $roundBet = $playerCache[$playerId]['roundBet'];
+                    $hasActed = $playerCache[$playerId]['hasActed'];
+                }
 
                 if ($miseCourante == 0) {
                     if ($hasActed) continue;
@@ -726,55 +774,12 @@ switch ($action) {
                     break;
                 }
 
-                $bot = $player;
-                $handScore = 0;
-                $handName = '';
-                $botCards = $bot['cartes'] ? json_decode($bot['cartes'], true) : [];
-                $community = $hand['communautaires'] ? json_decode($hand['communautaires'], true) : [];
-                $allCards = array_merge($botCards, $community);
-
-                if (count($allCards) >= 5) {
-                    $best = evaluateBestHand($allCards);
-                    $handScore = $best['score'];
-                    $handName = $best['name'];
-                } elseif (count($botCards) >= 2) {
-                    $handScore = evaluatePreflop($botCards);
-                }
-
+                // Utiliser BotAI pour décider de l'action
+                $botAI = new BotAI($pdo);
+                $botAction = $botAI->decideAction($handId, $player['id'], $hand, $player);
+                $action = $botAction['action'];
+                $betMontant = $botAction['montant'];
                 $toCall = $miseCourante - $roundBet;
-                $action = 'check';
-                $betMontant = 0;
-
-                if ($tour === 'preflop') {
-                    if ($handScore > 300) {
-                        $betMontant = min($bot['chips_avant'], max($toCall + $miseCourante, $miseCourante * 2));
-                        $action = ($toCall > 0) ? 'raise' : 'bet';
-                    } elseif ($handScore > 100 && $toCall <= $bot['chips_avant'] * 0.3) {
-                        $betMontant = min($toCall, $bot['chips_avant']);
-                        $action = ($toCall > 0) ? 'call' : 'check';
-                    } elseif ($toCall > 0 && $toCall <= $bot['chips_avant']) {
-                        $betMontant = $toCall;
-                        $action = 'call';
-                    } else {
-                        $action = ($toCall > 0) ? 'fold' : 'check';
-                    }
-                } else {
-                    if ($handScore > 500) {
-                        $betMontant = min($bot['chips_avant'], max($toCall + (int)($miseCourante * 0.5), $miseCourante));
-                        $action = ($toCall > 0) ? 'raise' : 'bet';
-                    } elseif ($handScore > 200 && $toCall <= $bot['chips_avant'] * 0.4) {
-                        $betMontant = min($toCall, $bot['chips_avant']);
-                        $action = ($toCall > 0) ? 'call' : 'bet';
-                        if ($action === 'bet') {
-                            $betMontant = min($bot['chips_avant'], max(1, (int)($miseCourante * 0.5)));
-                        }
-                    } elseif ($handScore > 100 && $toCall <= $bot['chips_avant'] * 0.2) {
-                        $betMontant = min($toCall, $bot['chips_avant']);
-                        $action = ($toCall > 0) ? 'call' : 'check';
-                    } else {
-                        $action = ($toCall > 0) ? 'fold' : 'check';
-                    }
-                }
 
                 $montantReel = 0;
                 if ($action === 'fold') {
@@ -835,12 +840,22 @@ switch ($action) {
             $allActed = true;
             foreach ($remainingPlayers as $ap) {
                 if ($ap['chips_avant'] <= 0) continue;
-                $stmt = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ?");
-                $stmt->execute([$handId, $ap['id'], $tour]);
-                $rb = (int)$stmt->fetchColumn();
-                $stmtA = $pdo->prepare("SELECT id FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ? AND action != 'blind'");
-                $stmtA->execute([$handId, $ap['id'], $tour]);
-                $ha = $stmtA->fetch();
+                
+                // Utiliser le cache si disponible
+                $apId = $ap['id'];
+                if (isset($playerCache[$apId])) {
+                    $rb = $playerCache[$apId]['roundBet'];
+                    $ha = $playerCache[$apId]['hasActed'];
+                } else {
+                    $stmt = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ?");
+                    $stmt->execute([$handId, $apId, $tour]);
+                    $rb = (int)$stmt->fetchColumn();
+                    $stmtA = $pdo->prepare("SELECT id FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ? AND action != 'blind'");
+                    $stmtA->execute([$handId, $apId, $tour]);
+                    $ha = $stmtA->fetch();
+                    $playerCache[$apId] = ['roundBet' => $rb, 'hasActed' => $ha];
+                }
+                
                 if ($mc == 0) {
                     if (!$ha) { $allActed = false; break; }
                 } else {
@@ -917,8 +932,8 @@ switch ($action) {
     // SHOWDOWN — Comparer les mains et déclarer le gagnant
     // ═══════════════════════════════════════
     case 'showdown':
-        $sessionId = (int)($_POST['id'] ?? 0);
-        $handId = (int)($_POST['hand_id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
+        $handId = validateInt($_POST['hand_id'] ?? 0, 1, PHP_INT_MAX, 0);
 
         if (!$sessionId || !$handId) {
             echo json_encode(['success' => false, 'error' => 'Paramètres manquants']);
@@ -965,13 +980,14 @@ switch ($action) {
             $bestKicker = -1;
             $winners = [];
             $handName = '';
+            $botAI = new BotAI($pdo);
 
             foreach ($activePlayers as $p) {
                 if (!$p['cartes']) continue;
                 $holeCards = json_decode($p['cartes'], true);
                 $allCards = array_merge($holeCards, $community);
                 if (count($allCards) < 5) continue;
-                $eval = evaluateBestHand($allCards);
+                $eval = $botAI->evaluateBestHand($allCards);
                 $evalKicker = $eval['kicker'] ?? 0;
                 if ($eval['score'] > $bestScore || ($eval['score'] === $bestScore && $evalKicker > $bestKicker)) {
                     $bestScore = $eval['score'];
@@ -1030,7 +1046,7 @@ switch ($action) {
     // AJOUTER UN BOT (hôte)
     // ═══════════════════════════════════════
     case 'join_bot':
-        $sessionId = (int)($_POST['id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
         if (!$sessionId) {
             echo json_encode(['success' => false, 'error' => 'ID requis']);
             exit;
@@ -1071,7 +1087,7 @@ switch ($action) {
     // SUPPRIMER UNE PARTIE (hôte uniquement)
     // ═══════════════════════════════════════
     case 'delete':
-        $sessionId = (int)($_POST['id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
         if (!$sessionId) {
             echo json_encode(['success' => false, 'error' => 'ID requis']);
             exit;
@@ -1130,140 +1146,4 @@ function createDeck(): array {
         }
     }
     return $deck;
-}
-
-function getValueRank($value): int {
-    $map = ['2'=>2,'3'=>3,'4'=>4,'5'=>5,'6'=>6,'7'=>7,'8'=>8,'9'=>9,'10'=>10,
-            'Valet'=>11,'Dame'=>12,'Roi'=>13,'As'=>14];
-    return $map[$value] ?? 0;
-}
-
-function encodeKickers(array $values, int $count): int {
-    $result = 0;
-    for ($i = 0; $i < $count && $i < count($values); $i++) {
-        $result = $result * 16 + $values[$i];
-    }
-    return $result;
-}
-
-// Évalue une main de 5 cartes — retourne score + kicker pour départager les égalités
-function evaluateHand(array $cards): array {
-    $values = array_map(function($c) { return getValueRank($c['value']); }, $cards);
-    $suits = array_map(function($c) { return $c['suit']; }, $cards);
-
-    sort($values);
-    $vals = array_count_values($values);
-    $isFlush = count(array_unique($suits)) === 1;
-
-    $isStraight = false;
-    $straightHigh = 0;
-    if (count(array_unique($values)) === 5) {
-        if (max($values) - min($values) === 4) {
-            $isStraight = true;
-            $straightHigh = max($values);
-        }
-        if (in_array(14, $values) && in_array(2, $values) && in_array(3, $values) && in_array(4, $values) && in_array(5, $values)) {
-            $isStraight = true;
-            $straightHigh = 5;
-        }
-    }
-
-    $score = 0;
-    $kicker = 0;
-    $name = 'Carte haute';
-    $values_desc = array_reverse($values);
-
-    if ($isFlush && $isStraight && $straightHigh === 14) {
-        $score = 1000; $name = 'Quinte Flush Royale';
-    } elseif ($isFlush && $isStraight) {
-        $score = 900 + $straightHigh; $name = 'Quinte Flush';
-    } elseif (in_array(4, $vals)) {
-        $quadsVal = array_search(4, $vals);
-        $remaining = array_values(array_filter($values_desc, fn($v) => $v != $quadsVal));
-        $score = 800 + $quadsVal * 10; $name = 'Carré';
-        $kicker = $remaining[0] ?? 0;
-    } elseif (in_array(3, $vals) && in_array(2, $vals)) {
-        $tripsVal = array_search(3, $vals);
-        $pairVal = array_search(2, $vals);
-        $score = 700 + $tripsVal * 10; $name = 'Full';
-        $kicker = $tripsVal * 16 + $pairVal;
-    } elseif ($isFlush) {
-        $score = 600 + max($values); $name = 'Couleur';
-        $kicker = encodeKickers($values_desc, 5);
-    } elseif ($isStraight) {
-        $score = 500 + $straightHigh; $name = 'Suite';
-    } elseif (in_array(3, $vals)) {
-        $tripsVal = array_search(3, $vals);
-        $remaining = array_values(array_filter($values_desc, fn($v) => $v != $tripsVal));
-        $score = 400 + $tripsVal * 10; $name = 'Brelan';
-        $kicker = encodeKickers($remaining, 2);
-    } elseif (count(array_keys($vals, 2)) === 2) {
-        $pairs = array_keys($vals, 2);
-        rsort($pairs);
-        $remaining = array_values(array_filter($values_desc, fn($v) => !in_array($v, $pairs)));
-        $score = 300 + $pairs[0] * 10; $name = 'Double Paire';
-        $kicker = $pairs[0] * 256 + $pairs[1] * 16 + ($remaining[0] ?? 0);
-    } elseif (in_array(2, $vals)) {
-        $pairVal = array_search(2, $vals);
-        $remaining = array_values(array_filter($values_desc, fn($v) => $v != $pairVal));
-        $score = 200 + $pairVal * 10; $name = 'Paire';
-        $kicker = encodeKickers($remaining, 3);
-    } else {
-        $score = max($values); $name = 'Carte haute';
-        $kicker = encodeKickers($values_desc, 5);
-    }
-
-    return ['score' => $score, 'name' => $name, 'kicker' => $kicker];
-}
-
-// Meilleure main parmi toutes les combinaisons de 5 cartes
-function evaluateBestHand(array $allCards): array {
-    $combinations = combinations($allCards, 5);
-    $best = ['score' => -1, 'name' => ''];
-    foreach ($combinations as $combo) {
-        $eval = evaluateHand($combo);
-        if ($eval['score'] > $best['score'] || ($eval['score'] === $best['score'] && ($eval['kicker'] ?? 0) > ($best['kicker'] ?? 0))) {
-            $best = $eval;
-        }
-    }
-    return $best;
-}
-
-// Génère toutes les combinaisons de k éléments
-function combinations(array $array, int $k): array {
-    $result = [];
-    $n = count($array);
-    if ($k <= 0 || $k > $n) return $result;
-    $indices = range(0, $k - 1);
-    $result[] = array_map(function($i) use ($array) { return $array[$i]; }, $indices);
-    while (true) {
-        $i = $k - 1;
-        while ($i >= 0 && $indices[$i] === $n - $k + $i) $i--;
-        if ($i < 0) break;
-        $indices[$i]++;
-        for ($j = $i + 1; $j < $k; $j++) $indices[$j] = $indices[$j - 1] + 1;
-        $result[] = array_map(function($i) use ($array) { return $array[$i]; }, $indices);
-    }
-    return $result;
-}
-
-// Évaluation pré-flop simplifiée
-function evaluatePreflop(array $cards): int {
-    if (count($cards) < 2) return 0;
-    $v1 = getValueRank($cards[0]['value']);
-    $v2 = getValueRank($cards[1]['value']);
-    $suited = ($cards[0]['suit'] === $cards[1]['suit']);
-
-    $score = 0;
-    // Paire
-    if ($v1 === $v2) {
-        $score = 100 + $v1 * 10;
-    } else {
-        $high = max($v1, $v2);
-        $low = min($v1, $v2);
-        $score = $high * 8 + $low * 2;
-        if ($suited) $score += 15;
-        if ($high - $low <= 2) $score += 10; // Connectors
-    }
-    return $score;
 }

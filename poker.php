@@ -1,6 +1,7 @@
 <?php
 // error_reporting(E_ALL); // production: désactivé
-ini_set('display_errors', 1);
+ini_set('display_errors', 0); // Désactivé en production pour la sécurité
+error_reporting(0);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once '../config.php';
 
@@ -10,6 +11,11 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $userId = $_SESSION['user_id'];
+
+// Générer un token CSRF si inexistant
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 // Récupérer chips du joueur
 $stmt = $pdo->prepare("SELECT pseudo, chips FROM utilisateur WHERE id = ?");
@@ -260,6 +266,7 @@ body {
                     <option value="4">4 bots</option>
                     <option value="5">5 bots</option>
                 </select>
+                <input type="hidden" id="csrfToken" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
                 <button class="btn btn-primary" onclick="createGame()">Créer la partie →</button>
             </div>
             <div class="invite-box" id="inviteBox">
@@ -328,6 +335,17 @@ function createGame() {
     var type = document.getElementById('gameType').value;
     var mise = parseInt(document.getElementById('gameMise').value) || 10;
     var bots = parseInt(document.getElementById('gameBots').value) || 0;
+    var csrfToken = document.getElementById('csrfToken').value;
+
+    // Validation des inputs
+    if (mise < 10 || mise > 100000) {
+        alert('La mise doit être comprise entre 10 et 100 000 chips.');
+        return;
+    }
+    if (bots < 0 || bots > 6) {
+        alert('Le nombre de bots doit être compris entre 0 et 6.');
+        return;
+    }
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', 'poker_api.php?action=create', true);
@@ -355,7 +373,7 @@ function createGame() {
             }
         } catch(e) { alert('Erreur réseau: ' + e.message); }
     };
-    xhr.send('type=' + encodeURIComponent(type) + '&mise=' + mise + '&bots=' + bots);
+    xhr.send('type=' + encodeURIComponent(type) + '&mise=' + mise + '&bots=' + bots + '&csrf_token=' + encodeURIComponent(csrfToken));
 }
 
 function goToGame() {
@@ -374,6 +392,13 @@ function copyInvite() {
 
 function joinByCode() {
     var code = document.getElementById('joinCode').value.trim();
+    var csrfToken = document.getElementById('csrfToken').value;
+    // Validation du code
+    if (!code || code.length < 8) {
+        err.textContent = 'Le code doit faire au moins 8 caractères.';
+        err.style.display = 'block';
+        return;
+    }
     if (!code) return;
     var err = document.getElementById('joinError');
     var xhr = new XMLHttpRequest();
@@ -391,7 +416,7 @@ function joinByCode() {
             }
         } catch(e) { err.textContent = 'Erreur réseau'; err.style.display = 'block'; }
     };
-    xhr.send('code=' + encodeURIComponent(code));
+    xhr.send('code=' + encodeURIComponent(code) + '&csrf_token=' + encodeURIComponent(csrfToken));
 }
 
 var scannerStream = null;
@@ -455,6 +480,7 @@ function stopScanner() {
 
 function deleteSession(id) {
     if (!confirm('Supprimer cette partie ? Les chips seront remboursés aux joueurs.')) return;
+    var csrfToken = document.getElementById('csrfToken').value;
     var xhr = new XMLHttpRequest();
     xhr.open('POST', 'poker_api.php?action=delete', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -468,7 +494,7 @@ function deleteSession(id) {
             }
         } catch(e) { alert('Erreur réseau'); }
     };
-    xhr.send('id=' + id);
+    xhr.send('id=' + id + '&csrf_token=' + encodeURIComponent(csrfToken));
 }
 </script>
 
