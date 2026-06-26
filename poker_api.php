@@ -17,6 +17,10 @@ set_error_handler(function($errno, $errstr, $errfile, $errline) {
 
 set_exception_handler(function($e) {
     logError("Exception: " . $e->getMessage() . " dans " . $e->getFile() . " à la ligne " . $e->getLine());
+    // Toujours retourner du JSON, même en cas d'exception
+    header('Content-Type: application/json');
+    echo json_encode(['success' => false, 'error' => 'Erreur serveur: ' . $e->getMessage()]);
+    exit;
 });
 
 if (session_status() === PHP_SESSION_NONE) session_start();
@@ -1192,10 +1196,10 @@ switch ($action) {
         echo json_encode(['success' => false, 'error' => 'Action inconnue']);
 }
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
-    error_log('Poker API Error: ' . $e->getMessage());
-    echo json_encode(['success' => false, 'error' => 'Erreur serveur']);
+    logError('Poker API Error: ' . $e->getMessage());
+    echo json_encode(['success' => false, 'error' => 'Erreur serveur: ' . $e->getMessage()]);
 }
 
 // ═══════════════════════════════════════
