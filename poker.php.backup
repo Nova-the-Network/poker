@@ -335,17 +335,6 @@ function createGame() {
     var type = document.getElementById('gameType').value;
     var mise = parseInt(document.getElementById('gameMise').value) || 10;
     var bots = parseInt(document.getElementById('gameBots').value) || 0;
-    var csrfToken = document.getElementById('csrfToken').value;
-
-    // Validation des inputs
-    if (mise < 10 || mise > 100000) {
-        alert('La mise doit être comprise entre 10 et 100 000 chips.');
-        return;
-    }
-    if (bots < 0 || bots > 6) {
-        alert('Le nombre de bots doit être compris entre 0 et 6.');
-        return;
-    }
 
     var xhr = new XMLHttpRequest();
     xhr.open('POST', 'poker_api.php?action=create', true);
@@ -373,7 +362,7 @@ function createGame() {
             }
         } catch(e) { alert('Erreur réseau: ' + e.message); }
     };
-    xhr.send('type=' + encodeURIComponent(type) + '&mise=' + mise + '&bots=' + bots + '&csrf_token=' + encodeURIComponent(csrfToken));
+    xhr.send('type=' + encodeURIComponent(type) + '&mise=' + mise + '&bots=' + bots);
 }
 
 function goToGame() {
@@ -392,13 +381,6 @@ function copyInvite() {
 
 function joinByCode() {
     var code = document.getElementById('joinCode').value.trim();
-    var csrfToken = document.getElementById('csrfToken').value;
-    // Validation du code
-    if (!code || code.length < 8) {
-        err.textContent = 'Le code doit faire au moins 8 caractères.';
-        err.style.display = 'block';
-        return;
-    }
     if (!code) return;
     var err = document.getElementById('joinError');
     var xhr = new XMLHttpRequest();
@@ -416,7 +398,7 @@ function joinByCode() {
             }
         } catch(e) { err.textContent = 'Erreur réseau'; err.style.display = 'block'; }
     };
-    xhr.send('code=' + encodeURIComponent(code) + '&csrf_token=' + encodeURIComponent(csrfToken));
+    xhr.send('code=' + encodeURIComponent(code));
 }
 
 var scannerStream = null;
@@ -480,7 +462,6 @@ function stopScanner() {
 
 function deleteSession(id) {
     if (!confirm('Supprimer cette partie ? Les chips seront remboursés aux joueurs.')) return;
-    var csrfToken = document.getElementById('csrfToken').value;
     var xhr = new XMLHttpRequest();
     xhr.open('POST', 'poker_api.php?action=delete', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -494,7 +475,7 @@ function deleteSession(id) {
             }
         } catch(e) { alert('Erreur réseau'); }
     };
-    xhr.send('id=' + id + '&csrf_token=' + encodeURIComponent(csrfToken));
+    xhr.send('id=' + id);
 }
 </script>
 

@@ -1,4 +1,6 @@
 <?php
+ini_set('display_errors', 0); // Désactivé en production pour la sécurité
+error_reporting(0);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once '../config.php';
 
@@ -12,6 +14,32 @@ if (!isset($_SESSION['user_id'])) {
 $userId = $_SESSION['user_id'];
 $action = $_GET['action'] ?? '';
 
+// Vérifier le token CSRF pour les requêtes POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_POST['csrf_token']) || !isset($_SESSION['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        echo json_encode(['success' => false, 'error' => 'Token CSRF invalide']);
+        exit;
+    }
+}
+
+// Fonction pour valider un entier dans une plage
+function validateInt($value, $min, $max, $default) {
+    $intValue = (int)$value;
+    if ($intValue < $min || $intValue > $max) {
+        return $default;
+    }
+    return $intValue;
+}
+
+// Fonction pour valider une chaîne de caractères
+function validateString($value, $minLength = 1, $maxLength = 255) {
+    $str = trim($value ?? '');
+    if (strlen($str) < $minLength || strlen($str) > $maxLength) {
+        return '';
+    }
+    return $str;
+}
+
 try {
 
 switch ($action) {
@@ -20,9 +48,12 @@ switch ($action) {
     // CRÉER UNE PARTIE
     // ═══════════════════════════════════════
     case 'create':
-        $type = in_array($_POST['type'] ?? '', ['vs_bots','vs_friends','mixte']) ? $_POST['type'] : 'vs_bots';
-        $mise = max(1, min(100000, (int)($_POST['mise'] ?? 100)));
-        $nbBots = ($type === 'vs_friends') ? 0 : max(0, min(6, (int)($_POST['bots'] ?? 0)));
+        $type = validateString($_POST['type'] ?? '');
+        if (!in_array($type, ['vs_bots','vs_friends','mixte'])) {
+            $type = 'vs_bots';
+        }
+        $mise = validateInt($_POST['mise'] ?? 100, 10, 100000, 100);
+        $nbBots = ($type === 'vs_friends') ? 0 : validateInt($_POST['bots'] ?? 0, 0, 6, 0);
 
         $stmt = $pdo->prepare("SELECT chips FROM utilisateur WHERE id = ?");
         $stmt->execute([$userId]);
@@ -92,9 +123,9 @@ switch ($action) {
     // REJOINDRE PAR CODE
     // ═══════════════════════════════════════
     case 'join':
-        $code = trim($_POST['code'] ?? '');
+        $code = validateString($_POST['code'] ?? '', 8, 8); // Code doit faire exactement 8 caractères
         if (!$code) {
-            echo json_encode(['success' => false, 'error' => 'Code invalide']);
+            echo json_encode(['success' => false, 'error' => 'Code invalide (8 caractères requis)']);
             exit;
         }
 
@@ -285,7 +316,7 @@ switch ($action) {
     // DISTRIBUER — 2 cartes + blinds + preflop
     // ═══════════════════════════════════════
     case 'deal':
-        $sessionId = (int)($_POST['id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
         if (!$sessionId) {
             echo json_encode(['success' => false, 'error' => 'ID requis']);
             exit;
@@ -441,13 +472,15 @@ switch ($action) {
     // ACTION : CHECK, BET, CALL, RAISE, FOLD
     // ═══════════════════════════════════════
     case 'action':
-        $sessionId = (int)($_POST['id'] ?? 0);
-        $handId = (int)($_POST['hand_id'] ?? 0);
-        $actionType = $_POST['action'] ?? '';
-        $montant = (int)($_POST['montant'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
+        $handId = validateInt($_POST['hand_id'] ?? 0, 1, PHP_INT_MAX, 0);
+        $actionType = validateString($_POST['action'] ?? '');
+        $montant = validateInt($_POST['montant'] ?? 0, 0, PHP_INT_MAX, 0);
 
-        if (!$sessionId || !$handId || !$actionType) {
-            echo json_encode(['success' => false, 'error' => 'Paramètres manquants']);
+        // Valider le type d'action
+        $validActions = ['check', 'bet', 'call', 'raise', 'fold'];
+        if (!$sessionId || !$handId || !in_array($actionType, $validActions)) {
+            echo json_encode(['success' => false, 'error' => 'Paramètres invalides']);
             exit;
         }
 
@@ -621,8 +654,8 @@ switch ($action) {
     // JOUER LES BOTS + AVANCER LES TOURS
     // ═══════════════════════════════════════
     case 'bot_play':
-        $sessionId = (int)($_POST['id'] ?? 0);
-        $handId = (int)($_POST['hand_id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
+        $handId = validateInt($_POST['hand_id'] ?? 0, 1, PHP_INT_MAX, 0);
 
         if (!$sessionId || !$handId) {
             echo json_encode(['success' => false, 'error' => 'Paramètres manquants']);
@@ -917,8 +950,8 @@ switch ($action) {
     // SHOWDOWN — Comparer les mains et déclarer le gagnant
     // ═══════════════════════════════════════
     case 'showdown':
-        $sessionId = (int)($_POST['id'] ?? 0);
-        $handId = (int)($_POST['hand_id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
+        $handId = validateInt($_POST['hand_id'] ?? 0, 1, PHP_INT_MAX, 0);
 
         if (!$sessionId || !$handId) {
             echo json_encode(['success' => false, 'error' => 'Paramètres manquants']);
@@ -1030,7 +1063,7 @@ switch ($action) {
     // AJOUTER UN BOT (hôte)
     // ═══════════════════════════════════════
     case 'join_bot':
-        $sessionId = (int)($_POST['id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
         if (!$sessionId) {
             echo json_encode(['success' => false, 'error' => 'ID requis']);
             exit;
@@ -1071,7 +1104,7 @@ switch ($action) {
     // SUPPRIMER UNE PARTIE (hôte uniquement)
     // ═══════════════════════════════════════
     case 'delete':
-        $sessionId = (int)($_POST['id'] ?? 0);
+        $sessionId = validateInt($_POST['id'] ?? 0, 1, PHP_INT_MAX, 0);
         if (!$sessionId) {
             echo json_encode(['success' => false, 'error' => 'ID requis']);
             exit;
