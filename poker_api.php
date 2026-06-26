@@ -728,6 +728,9 @@ switch ($action) {
         $needShowdown = false;
         $allActed = false;
         $botPasses = 0;
+        
+        // Cache pour les données des joueurs (roundBet, hasActed)
+        $playerCache = [];
 
         do {
             if (++$botPasses > 30) break;
@@ -735,13 +738,22 @@ switch ($action) {
                 $player = $orderedPlayers[($startIdx + $pi) % $numOrdered];
                 if ($player['chips_avant'] <= 0) continue;
 
-                $stmt = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ?");
-                $stmt->execute([$handId, $player['id'], $tour]);
-                $roundBet = (int)$stmt->fetchColumn();
+                // Vérifier si les données sont déjà en cache
+                $playerId = $player['id'];
+                if (!isset($playerCache[$playerId])) {
+                    $stmt = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ?");
+                    $stmt->execute([$handId, $playerId, $tour]);
+                    $roundBet = (int)$stmt->fetchColumn();
 
-                $stmtA = $pdo->prepare("SELECT id FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ? AND action != 'blind'");
-                $stmtA->execute([$handId, $player['id'], $tour]);
-                $hasActed = $stmtA->fetch();
+                    $stmtA = $pdo->prepare("SELECT id FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ? AND action != 'blind'");
+                    $stmtA->execute([$handId, $playerId, $tour]);
+                    $hasActed = $stmtA->fetch();
+                    
+                    $playerCache[$playerId] = ['roundBet' => $roundBet, 'hasActed' => $hasActed];
+                } else {
+                    $roundBet = $playerCache[$playerId]['roundBet'];
+                    $hasActed = $playerCache[$playerId]['hasActed'];
+                }
 
                 if ($miseCourante == 0) {
                     if ($hasActed) continue;
@@ -868,12 +880,22 @@ switch ($action) {
             $allActed = true;
             foreach ($remainingPlayers as $ap) {
                 if ($ap['chips_avant'] <= 0) continue;
-                $stmt = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ?");
-                $stmt->execute([$handId, $ap['id'], $tour]);
-                $rb = (int)$stmt->fetchColumn();
-                $stmtA = $pdo->prepare("SELECT id FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ? AND action != 'blind'");
-                $stmtA->execute([$handId, $ap['id'], $tour]);
-                $ha = $stmtA->fetch();
+                
+                // Utiliser le cache si disponible
+                $apId = $ap['id'];
+                if (isset($playerCache[$apId])) {
+                    $rb = $playerCache[$apId]['roundBet'];
+                    $ha = $playerCache[$apId]['hasActed'];
+                } else {
+                    $stmt = $pdo->prepare("SELECT COALESCE(SUM(montant), 0) FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ?");
+                    $stmt->execute([$handId, $apId, $tour]);
+                    $rb = (int)$stmt->fetchColumn();
+                    $stmtA = $pdo->prepare("SELECT id FROM poker_actions WHERE hand_id = ? AND player_id = ? AND tour = ? AND action != 'blind'");
+                    $stmtA->execute([$handId, $apId, $tour]);
+                    $ha = $stmtA->fetch();
+                    $playerCache[$apId] = ['roundBet' => $rb, 'hasActed' => $ha];
+                }
+                
                 if ($mc == 0) {
                     if (!$ha) { $allActed = false; break; }
                 } else {
@@ -1249,8 +1271,22 @@ function evaluateHand(array $cards): array {
     return ['score' => $score, 'name' => $name, 'kicker' => $kicker];
 }
 
+// Cache pour les mains évaluées (mémoïsation)
+$handCache = [];
+
 // Meilleure main parmi toutes les combinaisons de 5 cartes
 function evaluateBestHand(array $allCards): array {
+    // Créer une clé unique pour le cache
+    $cacheKey = '';
+    foreach ($allCards as $card) {
+        $cacheKey .= $card['value'] . $card['suit'];
+    }
+    
+    // Vérifier si le résultat est déjà en cache
+    if (isset($GLOBALS['handCache'][$cacheKey])) {
+        return $GLOBALS['handCache'][$cacheKey];
+    }
+    
     $combinations = combinations($allCards, 5);
     $best = ['score' => -1, 'name' => ''];
     foreach ($combinations as $combo) {
@@ -1259,6 +1295,9 @@ function evaluateBestHand(array $allCards): array {
             $best = $eval;
         }
     }
+    
+    // Stocker le résultat en cache
+    $GLOBALS['handCache'][$cacheKey] = $best;
     return $best;
 }
 
