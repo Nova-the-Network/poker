@@ -176,15 +176,17 @@ $playerStats = $stats->fetch(PDO::FETCH_ASSOC);
             <div style="display:flex;gap:8px;">
                 <input type="text" id="joinCode" placeholder="Code d'invitation" style="flex:1;padding:10px 12px;border:var(--border);border-radius:10px;font-family:'Plus Jakarta Sans',sans-serif;font-weight:600;font-size:0.9rem;outline:none;box-shadow:var(--sh);">
                 <button class="btn btn-secondary" onclick="joinByCode()">→</button>
-                <button class="btn btn-secondary" onclick="startScanner()" title="Scanner un QR code">📷</button>
+                <!-- Scanner désactivé (Infinity Free bloque l'accès caméra) -->
+                <!-- <button class="btn btn-secondary" onclick="startScanner()" title="Scanner un QR code">📷</button> -->
             </div>
             <div id="joinError" style="color:var(--red);font-size:0.78rem;font-weight:600;margin-top:6px;display:none;"></div>
-            <div id="scannerBox" style="display:none;margin-top:10px;position:relative;">
+            <!-- Scanner désactivé (Infinity Free bloque l'accès caméra) -->
+            <!-- <div id="scannerBox" style="display:none;margin-top:10px;position:relative;">
                 <video id="scannerVideo" style="width:100%;border-radius:10px;border:var(--border);box-shadow:var(--sh);" autoplay playsinline></video>
                 <canvas id="scannerCanvas" style="display:none;"></canvas>
                 <div id="scannerStatus" style="font-size:0.78rem;font-weight:600;color:var(--muted);margin-top:4px;text-align:center;">Scanne le QR code…</div>
                 <button class="btn btn-sm" style="margin-top:4px;width:100%;" onclick="stopScanner()">Annuler</button>
-            </div>
+            </div> -->
         </div>
 
         <div class="card">
@@ -286,14 +288,17 @@ function copyInvite() {
 function joinByCode() {
     var code = document.getElementById('joinCode').value.trim();
     var csrfToken = document.getElementById('csrfToken').value;
+    var err = document.getElementById('joinError');
+    
     // Validation du code
     if (!code || code.length < 8) {
-        err.textContent = 'Le code doit faire au moins 8 caractères.';
-        err.style.display = 'block';
+        if (err) {
+            err.textContent = 'Le code doit faire au moins 8 caractères.';
+            err.style.display = 'block';
+        }
         return;
     }
     if (!code) return;
-    var err = document.getElementById('joinError');
     var xhr = new XMLHttpRequest();
     xhr.open('POST', 'poker_api.php?action=join', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
