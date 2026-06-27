@@ -26,11 +26,11 @@ set_exception_handler(function($e) {
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 // Chemin absolu vers la racine du site (pour Infinity Free)
-$rootPath = dirname(__DIR__, 2); // Remonte de 2 niveaux depuis /game/
-require_once $rootPath . '/config.php';
+$rootPath = __DIR__; // Dossier courant (/poker/)
+require_once __DIR__ . '/../config.php';
 
 // Charger les classes automatiquement
-require_once $rootPath . '/classes/autoload.php';
+require_once __DIR__ . '/classes/autoload.php';
 
 // Vérifier et créer la table poker_bots si elle n'existe pas (pour Infinity Free)
 try {
