@@ -46,10 +46,10 @@ Voir [CHANGELOG.md](CHANGELOG.md) pour l'historique complet.
 
 ## Statistiques du projet
 
-- Dernière mise à jour: 2026-06-27
+- Dernière mise à jour: 2026-06-29
 - Version: 1.0.0
-- Nombre de commits: 13
-- Taille du dépôt: 217 Ko
+- Nombre de commits: 16
+- Taille du dépôt: 234 Ko
 
 ---
 
