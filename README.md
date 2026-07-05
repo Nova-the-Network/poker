@@ -38,6 +38,22 @@ Bienvenue sur Nova Poker, un jeu de poker en ligne développé par Nova Network.
 - poker.php pour lancer une nouvelle partie
 - poker_api.php pour les interactions programmatique
 
+## Dernières nouveautés
+
+### 2026-07-05
+- ✅ Mise à jour quotidienne des statistiques du README
+- 📊 Nombre total de commits: 23
+
+### 2026-06-27
+- 🐛 Correction des chemins et des bugs critiques dans poker_api.php
+- 🔧 Ajout de corrections_poker.sql pour les colonnes manquantes
+- 🔒 Amélioration des validations et de la sécurité
+
+### 2026-06-26
+- 🐛 Fix: Corrections pour Infinity Free (compatibilité caméra, chemins, erreurs JS)
+- 📱 Désactivation du scanner de QR code (Infinity Free bloque l'accès caméra)
+- ✅ Correction de joinByCode() et des chemins vers autoload.php
+
 ## Changelog
 
 Voir [CHANGELOG.md](CHANGELOG.md) pour l'historique complet.
@@ -48,9 +64,9 @@ Voir [CHANGELOG.md](CHANGELOG.md) pour l'historique complet.
 
 - Dernière mise à jour: 2026-07-05
 - Version: 1.0.0
-- Nombre de commits: 20
+- Nombre de commits: 23
 - Taille du dépôt: 243 Ko
 
 ---
 
-Développé avec love par Nova Network
+Développé avec ❤️ par Nova Network
