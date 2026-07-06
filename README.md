@@ -42,7 +42,7 @@ Bienvenue sur Nova Poker, un jeu de poker en ligne développé par Nova Network.
 
 ### 2026-07-05
 - ✅ Mise à jour quotidienne des statistiques du README
-- 📊 Nombre total de commits: 23
+- 📊 Nombre total de commits: 25
 
 ### 2026-06-27
 - 🐛 Correction des chemins et des bugs critiques dans poker_api.php
@@ -62,10 +62,10 @@ Voir [CHANGELOG.md](CHANGELOG.md) pour l'historique complet.
 
 ## Statistiques du projet
 
-- Dernière mise à jour: 2026-07-05
+- Dernière mise à jour: 2026-07-06
 - Version: 1.0.0
-- Nombre de commits: 23
-- Taille du dépôt: 243 Ko
+- Nombre de commits: 25
+- Taille du dépôt: 246 Ko
 
 ---
 
