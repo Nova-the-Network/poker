@@ -1,4 +1,3 @@
-
 # Nova Network - Poker
 
 > Un jeu de poker en ligne développé par Nova Network
@@ -63,10 +62,10 @@ Voir [CHANGELOG.md](CHANGELOG.md) pour l'historique complet.
 
 ## Statistiques du projet
 
-- Dernière mise à jour: 2026-07-14
+- Dernière mise à jour: 2026-07-15
 - Version: 1.0.0
-- Nombre de commits: 33
-- Taille du dépôt: 261 Ko
+- Nombre de commits: 34
+- Taille du dépôt: 263 Ko
 
 ---
 
