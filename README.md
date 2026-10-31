@@ -4,10 +4,10 @@ Projet de poker en ligne développé par Nova-the-Network.
 
 ## 📊 Statistiques du projet
 
-- **Dernière mise à jour** : 2026-10-30
+- **Dernière mise à jour** : 2026-10-31
 - **Version** : 1.0.0
-- **Nombre de commits** : 133
-- **Taille du dépôt** : 206 Ko
+- **Nombre de commits** : 134
+- **Taille du dépôt** : 207 Ko
 
 ## 🎯 Fonctionnalités
 
